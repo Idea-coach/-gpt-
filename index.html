@@ -1,0 +1,229 @@
+import React, { useState } from "react";
+
+export default function App() {
+  const SPAN = 36;
+  const HEIGHT = 10;
+
+  const SCALE = 20;
+
+  const CANVAS_WIDTH = 1100;
+  const CANVAS_HEIGHT = 650;
+
+  const ORIGIN_X = 120;
+  const ORIGIN_Y = 520;
+
+  const toPx = (x, y) => ({
+    x: ORIGIN_X + x * SCALE,
+    y: ORIGIN_Y - y * SCALE,
+  });
+
+  const toLogical = (x, y) => ({
+    x: (x - ORIGIN_X) / SCALE,
+    y: (ORIGIN_Y - y) / SCALE,
+  });
+
+  const snap01 = (v) => Math.round(v * 10) / 10;
+
+  const initialNodes = [
+    { id: 1, x: 0, y: 0 },
+    { id: 2, x: 36, y: 0 },
+  ];
+
+  const [nodes, setNodes] = useState(initialNodes);
+  const [members, setMembers] = useState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [hover, setHover] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const load = 40;
+
+  const resetAll = () => {
+    setNodes(initialNodes);
+    setMembers([]);
+    setSelectedNode(null);
+    setHover(null);
+    setResult(null);
+  };
+
+  const addNode = (x, y) => {
+    setNodes((prev) => [...prev, { id: Date.now(), x, y }]);
+  };
+
+  const handleCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left - ORIGIN_X) / SCALE;
+    const y = (ORIGIN_Y - (e.clientY - rect.top)) / SCALE;
+
+    if (x < 0 || x > SPAN || y < 0 || y > HEIGHT) return;
+
+    addNode(snap01(x), snap01(y));
+  };
+
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left - ORIGIN_X) / SCALE;
+    const y = (ORIGIN_Y - (e.clientY - rect.top)) / SCALE;
+
+    if (x < 0 || x > SPAN || y < 0 || y > HEIGHT) {
+      setHover(null);
+      return;
+    }
+
+    setHover({
+      x: snap01(x),
+      y: snap01(y),
+      px: e.clientX - rect.left,
+      py: e.clientY - rect.top,
+    });
+  };
+
+  const handleNodeClick = (id) => {
+    if (!selectedNode) {
+      setSelectedNode(id);
+      return;
+    }
+
+    if (selectedNode === id) {
+      setSelectedNode(null);
+      return;
+    }
+
+    const exists = members.some(
+      (m) =>
+        (m.start === selectedNode && m.end === id) ||
+        (m.start === id && m.end === selectedNode)
+    );
+
+    if (!exists) {
+      setMembers((prev) => [
+        ...prev,
+        { id: Date.now(), start: selectedNode, end: id },
+      ]);
+    }
+
+    setSelectedNode(null);
+  };
+
+  const deleteNode = (id) => {
+    setNodes((prev) => prev.filter((n) => n.id !== id));
+    setMembers((prev) => prev.filter((m) => m.start !== id && m.end !== id));
+  };
+
+  const calculateBridge = () => {
+    let strength = 0;
+    let weight = 0;
+
+    members.forEach((m) => {
+      const s = nodes.find((n) => n.id === m.start);
+      const e = nodes.find((n) => n.id === m.end);
+      if (!s || !e) return;
+
+      const dx = e.x - s.x;
+      const dy = e.y - s.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+
+      strength += 30 - len * 0.2 + Math.abs(dy) * 2;
+      weight += len * (3 / 25);
+    });
+
+    const maxLoad = strength * 5;
+    const ratio = weight > 0 ? maxLoad / weight : 0;
+
+    setResult({
+      maxLoad,
+      weight,
+      ratio,
+      status:
+        maxLoad < load ? "붕괴" : maxLoad < load * 1.5 ? "주의" : "안전",
+    });
+  };
+
+  const loadPos = toPx(SPAN / 2, HEIGHT);
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>스파게티 다리 설계 시뮬레이터</h2>
+
+      <button onClick={resetAll}>초기화</button>
+      <button onClick={calculateBridge}>하중 테스트</button>
+
+      <svg
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        style={{ border: "1px solid #ccc", background: "white" }}
+        onClick={handleCanvasClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        {/* grid */}
+        <rect width="100%" height="100%" fill="#f9f9f9" />
+
+        {/* guide lines */}
+        <line x1={ORIGIN_X} y1={0} x2={ORIGIN_X} y2={CANVAS_HEIGHT} stroke="#aaa" />
+        <line x1={0} y1={ORIGIN_Y} x2={CANVAS_WIDTH} y2={ORIGIN_Y} stroke="#aaa" />
+
+        {/* hover crosshair */}
+        {hover && (
+          <>
+            <line x1={hover.px} y1={0} x2={hover.px} y2={CANVAS_HEIGHT} stroke="blue" strokeDasharray="4" />
+            <line x1={0} y1={hover.py} x2={CANVAS_WIDTH} y2={hover.py} stroke="blue" strokeDasharray="4" />
+            <text x={hover.px + 10} y={hover.py - 10}>
+              ({hover.x}, {hover.y})
+            </text>
+          </>
+        )}
+
+        {/* load */}
+        <circle cx={loadPos.x} cy={loadPos.y} r="8" fill="red" />
+        <text x={loadPos.x + 10} y={loadPos.y}>LOAD</text>
+
+        {/* members */}
+        {members.map((m) => {
+          const s = nodes.find((n) => n.id === m.start);
+          const e = nodes.find((n) => n.id === m.end);
+          if (!s || !e) return null;
+
+          const p1 = toPx(s.x, s.y);
+          const p2 = toPx(e.x, e.y);
+
+          return (
+            <line
+              key={m.id}
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke="black"
+              strokeWidth="3"
+            />
+          );
+        })}
+
+        {/* nodes */}
+        {nodes.map((n) => {
+          const p = toPx(n.x, n.y);
+          return (
+            <circle
+              key={n.id}
+              cx={p.x}
+              cy={p.y}
+              r="6"
+              fill="red"
+              onClick={() => handleNodeClick(n.id)}
+              onDoubleClick={() => deleteNode(n.id)}
+            />
+          );
+        })}
+      </svg>
+
+      {result && (
+        <div>
+          <p>상태: {result.status}</p>
+          <p>최대 하중: {result.maxLoad.toFixed(2)}</p>
+          <p>다리 무게: {result.weight.toFixed(2)}</p>
+          <p>견딘하중/무게: {result.ratio.toFixed(2)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
